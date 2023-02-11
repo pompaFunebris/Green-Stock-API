@@ -186,8 +186,15 @@ GET_3_MOST_POPULAR_BUY_OFFER_PRODUCTS = ("select resource_id from buy_offers gro
 
 GET_3_MOST_POPULAR_TRANSACTION_PRODUCTS = ("select resource_id from transactions group by resource_id order by count(*) desc limit 3;")
 
-SELECT_IS_ADMIN_FROM_COMPANIES = ("select is_admin from companies where public_id=(%s)")
+SELECT_IS_ADMIN_FROM_COMPANIES = ("select is_admin from companies where public_id=(%s);")
 
+SELECT_COMPANY_ID = ("select company_id from companies where public_id=(%s);")
+
+GET_SELLER_ID_OF_OFFER = ("select seller_id from sell_offers where sell_offer_id=(%s);")
+
+GET_BUYER_ID_OF_OFFER = ("select buyer_id from buy_offers where buy_offer_id=(%s);")
+
+GET_COMPANY_ID_OF_COMPANY_RESOURCE = ("select company_id from company_resources where company_resource_id=(%s);")
 
 app = Flask(__name__)
 url = os.getenv("DATABASE_URL")
@@ -226,18 +233,21 @@ def is_admin(public_id):
             cursor.execute(SELECT_IS_ADMIN_FROM_COMPANIES, (public_id, ))
             is_admin = cursor.fetchall()[0][0]
             
-            if str(is_admin) != "True":
+            if bool(is_admin) != True:
                 return False
             else:
                 return True    
 
-@app.route('/check/<public_id>')
-def is_admin(public_id):
+
+def get_company_id(public_id):
     with connection:
         with connection.cursor() as cursor:
-            cursor.execute(SELECT_IS_ADMIN_FROM_COMPANIES, (public_id, ))
-            is_admin = cursor.fetchall()[0]
-            return jsonify({'data': is_admin})
+            cursor.execute(SELECT_COMPANY_ID, (public_id, ))
+            cid = cursor.fetchall()[0][0]
+
+            return cid
+            
+            
 
 @app.route('/login')
 def login():
@@ -268,14 +278,9 @@ def login():
 @token_required 
 def initialize_db(current_company):
     public_id = current_company[1]
-
-    with connection:
-        with connection.cursor() as cursor:
-            cursor.execute(SELECT_IS_ADMIN_FROM_COMPANIES, (public_id, ))
-            is_admin = cursor.fetchall()[0][0]
-            
-            if str(is_admin) != "True":
-                return jsonify({'message' : 'Cannot perform that function, you have to be an admin'}) 
+ 
+    if not is_admin(public_id):
+        return jsonify({'message' : 'Cannot perform that function, you have to be an admin'}) 
 
     with connection:
         with connection.cursor() as cursor:
@@ -380,13 +385,8 @@ def initialize_db(current_company):
 def get_all_companies(current_company):
     public_id = current_company[1]
 
-    with connection:
-        with connection.cursor() as cursor:
-            cursor.execute(SELECT_IS_ADMIN_FROM_COMPANIES, (public_id, ))
-            is_admin = cursor.fetchall()[0][0]
-            
-            if str(is_admin) != "True":
-                return jsonify({'message' : 'Cannot perform that function, you have to be an admin'})  
+    if not is_admin(public_id):
+        return jsonify({'message' : 'Cannot perform that function, you have to be an admin'})  
 
     with connection:
         with connection.cursor() as cursor:
@@ -418,8 +418,13 @@ def get_all_companies(current_company):
 @app.get('/companies/<public_id>')
 @token_required 
 def get_one_company(current_company, public_id): 
+    
+    actual_pubic_id = current_company[1]
+    if actual_pubic_id != public_id and not is_admin(actual_pubic_id):
+        return jsonify({'message' : 'Cannot perform that function, you can get only your own company data'}), 401    
+
     with connection:
-        with connection.cursor() as cursor: 
+        with connection.cursor() as cursor:
             try:    
                 cursor.execute(SELECT_ONE_COMPANY, (public_id, ))
 
@@ -467,13 +472,8 @@ def create_company():
 def promote_company(current_company, public_id): 
     public_id = current_company[1]
 
-    with connection:
-        with connection.cursor() as cursor:
-            cursor.execute(SELECT_IS_ADMIN_FROM_COMPANIES, (public_id, ))
-            is_admin = cursor.fetchall()[0][0]
-            
-            if str(is_admin) != "True":
-                return jsonify({'message' : 'Cannot perform that function, you have to be an admin'}) 
+    if not is_admin(public_id):
+        return jsonify({'message' : 'Cannot perform that function, you have to be an admin'}), 401  
 
     with connection:
             with connection.cursor() as cursor:
@@ -489,6 +489,11 @@ def promote_company(current_company, public_id):
 @app.put('/change_company_name/<public_id>')
 @token_required 
 def change_company_name(current_company, public_id): 
+
+    actual_pubic_id = current_company[1]
+    if actual_pubic_id != public_id and not is_admin(actual_pubic_id):
+        return jsonify({'message' : 'Cannot perform that function, you can get only your own company data'}), 401
+
     with connection:
             with connection.cursor() as cursor:
                 try:
@@ -506,6 +511,11 @@ def change_company_name(current_company, public_id):
 @app.put('/change_company_mail/<public_id>')
 @token_required 
 def change_company_mail(current_company, public_id): 
+
+    actual_pubic_id = current_company[1]
+    if actual_pubic_id != public_id and not is_admin(actual_pubic_id):
+        return jsonify({'message' : 'Cannot perform that function, you can change only your own company data'}), 401
+
     with connection:
             with connection.cursor() as cursor:
                 try:
@@ -576,13 +586,8 @@ def get_one_resource(resource_id):
 def create_resource(current_company): 
     public_id = current_company[1]
 
-    with connection:
-        with connection.cursor() as cursor:
-            cursor.execute(SELECT_IS_ADMIN_FROM_COMPANIES, (public_id, ))
-            is_admin = cursor.fetchall()[0][0]
-            
-            if str(is_admin) != "True":
-                return jsonify({'message' : 'Cannot perform that function, you have to be an admin'}) 
+    if not is_admin(public_id):
+        return jsonify({'message' : 'Cannot perform that function, you have to be an admin'}), 401   
 
     try:
         data = request.get_json()
@@ -603,13 +608,8 @@ def create_resource(current_company):
 def get_all_buy_offers(current_company):
     public_id = current_company[1]
 
-    with connection:
-        with connection.cursor() as cursor:
-            cursor.execute(SELECT_IS_ADMIN_FROM_COMPANIES, (public_id, ))
-            is_admin = cursor.fetchall()[0][0]
-            
-            if str(is_admin) != "True":
-                return jsonify({'message' : 'Cannot perform that function, you have to be an admin'}) 
+    if not is_admin(public_id):
+        return jsonify({'message' : 'Cannot perform that function, you have to be an admin'}), 401
 
     with connection:
         with connection.cursor() as cursor:
@@ -724,20 +724,11 @@ def buy_avg_resource_price(resource_id):
 @app.post('/buy_offer')
 @token_required
 def create_buy_offer(current_company): 
-    public_id = current_company[1]
-
-    with connection:
-        with connection.cursor() as cursor:
-            cursor.execute(SELECT_IS_ADMIN_FROM_COMPANIES, (public_id, ))
-            is_admin = cursor.fetchall()[0][0]
-            
-            if str(is_admin) != "True":
-                return jsonify({'message' : 'Cannot perform that function, you have to be an admin'}) 
 
     try:
         data = request.get_json()
 
-        buyer_id = data['buyer_id']
+        buyer_public_id = data['buyer_id']
         resource_id = data['resource_id']
         quantity = data['quantity']
         price_per_ton = data['price_per_ton']
@@ -745,9 +736,15 @@ def create_buy_offer(current_company):
         offer_end_date = data['offer_end_date']
         min_amount = data['min_amount']
 
+        actual_public_id = current_company[1]
+        if actual_public_id != buyer_public_id and not is_admin(actual_public_id):
+            return jsonify({'message' : 'Cannot perform that function, you can only insert your buy offer'}), 401
+
+        internal_company_id = get_company_id(actual_public_id)   
+
         with connection:
             with connection.cursor() as cursor: 
-                cursor.execute(INSERT_INTO_BUY_OFFERS, (buyer_id, resource_id, quantity, price_per_ton, "'"+offer_start_date+"'", "'"+offer_end_date+"'", min_amount))
+                cursor.execute(INSERT_INTO_BUY_OFFERS, (internal_company_id, resource_id, quantity, price_per_ton, "'"+offer_start_date+"'", "'"+offer_end_date+"'", min_amount))
                 buy_offer_id = cursor.fetchone()[0]
                 
                 return jsonify({'message' : 'New buy offer created', 'id' : buy_offer_id}), 201
@@ -758,6 +755,20 @@ def create_buy_offer(current_company):
 @app.delete('/buy_offer/<buy_offer_id>')
 @token_required
 def delete_buy_offer(current_company, buy_offer_id):
+    with connection:
+        with connection.cursor() as cursor:       
+            try:
+                cursor.execute(GET_BUYER_ID_OF_OFFER, (buy_offer_id, ))
+                buyer_id = cursor.fetchone()[0]
+            except (Exception, psycopg2.Error):  
+                return jsonify( {'error' : "no buy offer with given id"})    
+
+    company_id = current_company[0]        
+    actual_public_id = current_company[1]
+
+    if company_id != buyer_id and not is_admin(actual_public_id):
+        return jsonify({'message' : 'Cannot perform that function, you can only delete your own buy offer'}), 401
+
     with connection:
         with connection.cursor() as cursor: 
             try:          
@@ -771,6 +782,20 @@ def delete_buy_offer(current_company, buy_offer_id):
 @app.put('/change_buy_offer_quantity/<buy_offer_id>')
 @token_required
 def change_buy_offer_quantity(current_company, buy_offer_id): 
+    with connection:
+        with connection.cursor() as cursor:       
+            try:
+                cursor.execute(GET_SELLER_ID_OF_OFFER, (buy_offer_id, ))
+                buyer_id = cursor.fetchone()[0]
+            except (Exception, psycopg2.Error):  
+                return jsonify( {'error' : "no buy offer with given id"})    
+
+    company_id = current_company[0]        
+    actual_public_id = current_company[1]
+
+    if company_id != buyer_id and not is_admin(actual_public_id):
+        return jsonify({'message' : 'Cannot perform that function, you can only change your buy offer'}), 401
+        
     with connection:
             with connection.cursor() as cursor:
                 try:
@@ -789,6 +814,20 @@ def change_buy_offer_quantity(current_company, buy_offer_id):
 @token_required
 def change_buy_offer_price_per_ton(current_company, buy_offer_id): 
     with connection:
+        with connection.cursor() as cursor:       
+            try:
+                cursor.execute(GET_SELLER_ID_OF_OFFER, (buy_offer_id, ))
+                buyer_id = cursor.fetchone()[0]
+            except (Exception, psycopg2.Error):  
+                return jsonify( {'error' : "no buy offer with given id"})    
+
+    company_id = current_company[0]        
+    actual_public_id = current_company[1]
+
+    if company_id != buyer_id and not is_admin(actual_public_id):
+        return jsonify({'message' : 'Cannot perform that function, you can only change your buy offer'}), 401
+
+    with connection:
             with connection.cursor() as cursor:
                 try:
                     data = request.get_json()
@@ -806,6 +845,20 @@ def change_buy_offer_price_per_ton(current_company, buy_offer_id):
 @token_required
 def change_buy_offer_end_date(current_company, buy_offer_id): 
     with connection:
+        with connection.cursor() as cursor:       
+            try:
+                cursor.execute(GET_SELLER_ID_OF_OFFER, (buy_offer_id, ))
+                buyer_id = cursor.fetchone()[0]
+            except (Exception, psycopg2.Error):  
+                return jsonify( {'error' : "no buy offer with given id"})    
+
+    company_id = current_company[0]        
+    actual_public_id = current_company[1]
+
+    if company_id != buyer_id and not is_admin(actual_public_id):
+        return jsonify({'message' : 'Cannot perform that function, you can only change your buy offer'}), 401
+
+    with connection:
             with connection.cursor() as cursor:
                 try:
                     data = request.get_json()
@@ -822,6 +875,20 @@ def change_buy_offer_end_date(current_company, buy_offer_id):
 @app.put('/change_buy_min_amount/<buy_offer_id>')
 @token_required
 def change_buy_min_amount(current_company, buy_offer_id): 
+    with connection:
+        with connection.cursor() as cursor:       
+            try:
+                cursor.execute(GET_SELLER_ID_OF_OFFER, (buy_offer_id, ))
+                buyer_id = cursor.fetchone()[0]
+            except (Exception, psycopg2.Error):  
+                return jsonify( {'error' : "no buy offer with given id"})    
+
+    company_id = current_company[0]        
+    actual_public_id = current_company[1]
+
+    if company_id != buyer_id and not is_admin(actual_public_id):
+        return jsonify({'message' : 'Cannot perform that function, you can only change your buy offer'}), 401
+
     with connection:
             with connection.cursor() as cursor:
                 try:
@@ -841,13 +908,8 @@ def change_buy_min_amount(current_company, buy_offer_id):
 def get_all_sell_offers(current_company):
     public_id = current_company[1]
 
-    with connection:
-        with connection.cursor() as cursor:
-            cursor.execute(SELECT_IS_ADMIN_FROM_COMPANIES, (public_id, ))
-            is_admin = cursor.fetchall()[0][0]
-            
-            if str(is_admin) != "True":
-                return jsonify({'message' : 'Cannot perform that function, you have to be an admin'}) 
+    if not is_admin(public_id):
+        return jsonify({'message' : 'Cannot perform that function, you have to be an admin'})   
 
     with connection:
         with connection.cursor() as cursor:
@@ -965,7 +1027,7 @@ def create_sell_offer(current_company):
     try:
         data = request.get_json()
 
-        seller_id = data['seller_id']
+        seller_public_id = data['seller_id']
         resource_id = data['resource_id']
         quantity = data['quantity']
         price_per_ton = data['price_per_ton']
@@ -973,9 +1035,15 @@ def create_sell_offer(current_company):
         offer_end_date = data['offer_end_date']
         min_amount = data['min_amount']
 
+        actual_public_id = current_company[1]
+        if actual_public_id != seller_public_id and not is_admin(actual_public_id):
+            return jsonify({'message' : 'Cannot perform that function, you can only insert your sell offer'}), 401
+
+        internal_company_id = get_company_id(actual_public_id) 
+
         with connection:
             with connection.cursor() as cursor: 
-                cursor.execute(INSERT_INTO_SELL_OFFERS, (seller_id, resource_id, quantity, price_per_ton, "'"+offer_start_date+"'", "'"+offer_end_date+"'", min_amount))
+                cursor.execute(INSERT_INTO_SELL_OFFERS, (internal_company_id, resource_id, quantity, price_per_ton, "'"+offer_start_date+"'", "'"+offer_end_date+"'", min_amount))
                 sell_offer_id = cursor.fetchone()[0]
                 
                 return jsonify({'message' : 'Sell offer created', 'id' : sell_offer_id}), 201
@@ -987,18 +1055,46 @@ def create_sell_offer(current_company):
 @token_required
 def delete_sell_offer(current_company, sell_offer_id):
     with connection:
+        with connection.cursor() as cursor:       
+            try:
+                cursor.execute(GET_SELLER_ID_OF_OFFER, (sell_offer_id, ))
+                seller_id = cursor.fetchone()[0]
+            except (Exception, psycopg2.Error):  
+                return jsonify( {'error' : "no sell offer with given id"})    
+
+    company_id = current_company[0]        
+    actual_public_id = current_company[1]
+
+    if company_id != seller_id and not is_admin(actual_public_id):
+        return jsonify({'message' : 'Cannot perform that function, you can only delete your sell offer'}), 401        
+
+    with connection:
         with connection.cursor() as cursor: 
-            try:          
+            try:               
                 cursor.execute(DELETE_SELL_OFFER, (sell_offer_id,))
                 return jsonify( {'message' : "Delete Successful"} )
                 
-            except (Exception, psycopg2.Error):   
+            except (Exception, psycopg2.Error):  
                 return jsonify( {'error' : "Error while deleting record"})
 
 
 @app.put('/change_sell_offer_quantity/<sell_offer_id>')
 @token_required
 def change_sell_offer_quantity(current_company, sell_offer_id): 
+    with connection:
+        with connection.cursor() as cursor:       
+            try:
+                cursor.execute(GET_SELLER_ID_OF_OFFER, (sell_offer_id, ))
+                seller_id = cursor.fetchone()[0]
+            except (Exception, psycopg2.Error):  
+                return jsonify( {'error' : "no sell offer with given id"})    
+
+    company_id = current_company[0]        
+    actual_public_id = current_company[1]
+
+    if company_id != seller_id and not is_admin(actual_public_id):
+        return jsonify({'message' : 'Cannot perform that function, you can only change your sell offer'}), 401
+
     with connection:
             with connection.cursor() as cursor:
                 try:
@@ -1017,6 +1113,20 @@ def change_sell_offer_quantity(current_company, sell_offer_id):
 @token_required
 def change_sell_offer_price_per_ton(current_company, sell_offer_id): 
     with connection:
+        with connection.cursor() as cursor:       
+            try:
+                cursor.execute(GET_SELLER_ID_OF_OFFER, (sell_offer_id, ))
+                seller_id = cursor.fetchone()[0]
+            except (Exception, psycopg2.Error):  
+                return jsonify( {'error' : "no sell offer with given id"})    
+
+    company_id = current_company[0]        
+    actual_public_id = current_company[1]
+
+    if company_id != seller_id and not is_admin(actual_public_id):
+        return jsonify({'message' : 'Cannot perform that function, you can only change your sell offer'}), 401
+
+    with connection:
             with connection.cursor() as cursor:
                 try:
                     data = request.get_json()
@@ -1034,6 +1144,20 @@ def change_sell_offer_price_per_ton(current_company, sell_offer_id):
 @token_required
 def change_sell_offer_end_date(current_company, sell_offer_id): 
     with connection:
+        with connection.cursor() as cursor:       
+            try:
+                cursor.execute(GET_SELLER_ID_OF_OFFER, (sell_offer_id, ))
+                seller_id = cursor.fetchone()[0]
+            except (Exception, psycopg2.Error):  
+                return jsonify( {'error' : "no sell offer with given id"})    
+
+    company_id = current_company[0]        
+    actual_public_id = current_company[1]
+
+    if company_id != seller_id and not is_admin(actual_public_id):
+        return jsonify({'message' : 'Cannot perform that function, you can only change your sell offer'}), 401
+
+    with connection:
             with connection.cursor() as cursor:
                 try:
                     data = request.get_json()
@@ -1049,7 +1173,21 @@ def change_sell_offer_end_date(current_company, sell_offer_id):
 
 @app.put('/change_sell_min_amount/<sell_offer_id>')
 @token_required
-def changesell_min_amount(current_company, sell_offer_id): 
+def change_sell_min_amount(current_company, sell_offer_id): 
+    with connection:
+        with connection.cursor() as cursor:       
+            try:
+                cursor.execute(GET_SELLER_ID_OF_OFFER, (sell_offer_id, ))
+                seller_id = cursor.fetchone()[0]
+            except (Exception, psycopg2.Error):  
+                return jsonify( {'error' : "no sell offer with given id"})    
+
+    company_id = current_company[0]        
+    actual_public_id = current_company[1]
+
+    if company_id != seller_id and not is_admin(actual_public_id):
+        return jsonify({'message' : 'Cannot perform that function, you can only change your sell offer'}), 401 
+    
     with connection:
             with connection.cursor() as cursor:
                 try:
@@ -1069,13 +1207,8 @@ def changesell_min_amount(current_company, sell_offer_id):
 def get_all_transactions(current_company):
     public_id = current_company[1]
 
-    with connection:
-        with connection.cursor() as cursor:
-            cursor.execute(SELECT_IS_ADMIN_FROM_COMPANIES, (public_id, ))
-            is_admin = cursor.fetchall()[0][0]
-            
-            if str(is_admin) != "True":
-                return jsonify({'message' : 'Cannot perform that function, you have to be an admin'}) 
+    if not is_admin(public_id):
+        return jsonify({'message' : 'Cannot perform that function, you have to be an admin'})   
 
     with connection:
         with connection.cursor() as cursor:
@@ -1109,6 +1242,10 @@ def get_all_transactions(current_company):
 @app.get('/transactions/<transaction_id>')
 @token_required
 def get_one_transaction(current_company, transaction_id):
+    company_id = current_company[0]
+    public_id = current_company[1]
+    admin_check = is_admin(public_id)
+
     with connection:
         with connection.cursor() as cursor: 
             try:    
@@ -1129,6 +1266,9 @@ def get_one_transaction(current_company, transaction_id):
                 transaction_data['transaction_time'] = transaction[6]
                 transaction_data['date'] = dt
                 transaction_data['timestamp'] = ts
+
+                if int(transaction_data['buyer_id']) != int(company_id) and int(transaction_data['seller_id']) != int(company_id) and not admin_check:
+                    return jsonify({'message' : 'Cannot perform that function, you can only read transaction that you take part in'}), 401
 
                 return jsonify( {'transaction' : transaction_data} )
             except (Exception, psycopg2.Error):
@@ -1202,9 +1342,9 @@ def get_avg_transaction_quantity(transaction_id):
 
 @app.post('/transaction')
 @token_required
-def create_transaction(): 
+def create_transaction(current_company): 
     try:
-        data = request.get_json()
+        data = request.get_json(force=True)
         
         buyer_id = data['buyer_id']
         seller_id = data['seller_id']
@@ -1212,6 +1352,11 @@ def create_transaction():
         quantity = data['quantity']
         price_per_ton = data['price_per_ton']
         transaction_time = data['transaction_time']
+        
+        company_id = current_company[0]
+        public_id = current_company[1]
+        if int(buyer_id) != int(company_id) and int(seller_id) != int(company_id) and not is_admin(public_id):
+            return jsonify({'message' : 'Cannot perform that function, you can only create transaction that you take part in'}), 401
 
         with connection:
             with connection.cursor() as cursor: 
@@ -1225,7 +1370,12 @@ def create_transaction():
 
 @app.delete('/transaction/<transaction_id>')
 @token_required
-def delete_transaction(transaction_id):
+def delete_transaction(current_company, transaction_id):
+    public_id = current_company[1]
+    
+    if not is_admin(public_id):
+        return jsonify({'message' : 'Cannot perform that function, you have to be an admin'})
+
     with connection:
         with connection.cursor() as cursor: 
             try:          
@@ -1241,13 +1391,8 @@ def delete_transaction(transaction_id):
 def get_all_company_resources(current_company):
     public_id = current_company[1]
     
-    with connection:
-        with connection.cursor() as cursor:
-            cursor.execute(SELECT_IS_ADMIN_FROM_COMPANIES, (public_id, ))
-            is_admin = cursor.fetchall()[0][0]
-            
-            if str(is_admin) != "True":
-                return jsonify({'message' : 'Cannot perform that function, you have to be an admin'}) 
+    if not is_admin(public_id):
+        return jsonify({'message' : 'Cannot perform that function, you have to be an admin'})  
                 
     with connection:
         with connection.cursor() as cursor:
@@ -1277,7 +1422,11 @@ def get_all_company_resources(current_company):
 
 @app.get('/company_resources/<company_resource_id>')
 @token_required
-def get_one_company_resource(company_resource_id):
+def get_one_company_resource(current_company, company_resource_id):
+    actual_company_id = current_company[0]
+    actual_public_id = current_company[1]
+    admin_check = is_admin(actual_public_id)
+
     with connection:
         with connection.cursor() as cursor: 
             try:    
@@ -1296,21 +1445,30 @@ def get_one_company_resource(company_resource_id):
                 resource_data['date'] = dt
                 resource_data['timestamp'] = ts
 
+                company_id = resource[1]
+                if company_id != actual_company_id and not admin_check:
+                    return jsonify({'message' : 'Cannot perform that function, you can only get your own company_resource'}), 401
+
                 return jsonify( {'transaction' : resource_data} )
             except (Exception, psycopg2.Error):
                 return jsonify( {'error' : "No company resource with given ID"})
                
 
-
 @app.post('/company_resource')
 @token_required
-def create_company_resource(): 
+def create_company_resource(current_company): 
     try:
         data = request.get_json()
         
-        company_id = data['company_id']
+        actual_company_id = current_company[0]
+        actual_public_id = current_company[1]
+
+        company_id = int(data['company_id'])
         resource_id = data['resource_id']
         stock_amount = data['stock_amount']
+        
+        if company_id != actual_company_id and not is_admin(actual_public_id):
+            return jsonify({'message' : 'Cannot perform that function, you can only create your own company_resource'}), 401
 
         with connection:
             with connection.cursor() as cursor: 
@@ -1324,7 +1482,21 @@ def create_company_resource():
 
 @app.put('/company_resource_change_stock/<company_resource_id>')
 @token_required
-def company_resource_change_stock(company_resource_id): 
+def company_resource_change_stock(current_company, company_resource_id): 
+    with connection:
+        with connection.cursor() as cursor:       
+            try:
+                cursor.execute(GET_COMPANY_ID_OF_COMPANY_RESOURCE, (company_resource_id, ))
+                company_id = cursor.fetchone()[0]
+            except (Exception, psycopg2.Error):  
+                return jsonify( {'error' : "no company resource offer with given id"}), 404    
+
+    actual_company_id = current_company[0]        
+    actual_public_id = current_company[1]
+
+    if company_id != actual_company_id and not is_admin(actual_public_id):
+        return jsonify({'message' : 'Cannot perform that function, you can only change your own company_resource'}), 401
+
     with connection:
             with connection.cursor() as cursor:
                 try:
@@ -1341,7 +1513,21 @@ def company_resource_change_stock(company_resource_id):
 
 @app.delete('/company_resources/<company_resource_id>')
 @token_required
-def delete_company_resource(company_resource_id):
+def delete_company_resource(current_company, company_resource_id):
+    with connection:
+        with connection.cursor() as cursor:       
+            try:
+                cursor.execute(GET_COMPANY_ID_OF_COMPANY_RESOURCE, (company_resource_id, ))
+                company_id = cursor.fetchone()[0]
+            except (Exception, psycopg2.Error):  
+                return jsonify( {'error' : "no company resource offer with given id"}), 404    
+
+    actual_company_id = current_company[0]        
+    actual_public_id = current_company[1]
+
+    if company_id != actual_company_id and not is_admin(actual_public_id):
+        return jsonify({'message' : 'Cannot perform that function, you can only delete your own company_resource'}), 401
+    
     with connection:
         with connection.cursor() as cursor: 
             try:          
@@ -1349,4 +1535,4 @@ def delete_company_resource(company_resource_id):
                 return jsonify( {'message' : "Delete Successful"} )
                 
             except (Exception, psycopg2.Error):   
-                return jsonify( {'error' : "Error while deleting transaction"})                
+                return jsonify( {'error' : "Error while deleting company resource"})                
