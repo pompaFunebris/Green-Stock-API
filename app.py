@@ -12,11 +12,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 from functools import wraps
 
-def get_hashed_password(plain_text_password):
-    # Hash a password for the first time
-    # (Using bcrypt, the salt is saved into the hash itself)
-    return bcrypt.hashpw(plain_text_password, bcrypt.gensalt())
-
 load_dotenv()
 
 CREATE_COMPANIES_TABLE = ("""
@@ -272,6 +267,16 @@ def login():
 @app.post("/initialize")
 @token_required 
 def initialize_db(current_company):
+    public_id = current_company[1]
+
+    with connection:
+        with connection.cursor() as cursor:
+            cursor.execute(SELECT_IS_ADMIN_FROM_COMPANIES, (public_id, ))
+            is_admin = cursor.fetchall()[0][0]
+            
+            if str(is_admin) != "True":
+                return jsonify({'message' : 'Cannot perform that function, you have to be an admin'}) 
+
     with connection:
         with connection.cursor() as cursor:
             cursor.execute(CREATE_COMPANIES_TABLE)
@@ -299,7 +304,6 @@ def initialize_db(current_company):
                 password = regex_pass.sub('', company).split(' ', 1)[0]
                 if len(password) < 5:
                     password = ''.join(random.choice(string.printable) for i in range(10))
-                #password_hash = get_hashed_password(password.encode())
                 password_hash = generate_password_hash(password, method='sha256')
 
                 is_admin = False
@@ -441,22 +445,17 @@ def get_one_company(current_company, public_id):
 
 
 @app.post('/company')
-@token_required 
-def create_company(current_company): 
+def create_company(): 
     try:
         data = request.get_json()
         company_name = data['company_name']
-        plaintext = data['password'].encode()
-        #digest = get_hashed_password(plaintext)
 
         hashed_password = generate_password_hash(data['password'], method='sha256')
         public_id = str(uuid.uuid4())
 
         with connection:
             with connection.cursor() as cursor: 
-                #cursor.execute(INSERT_INTO_COMPANIES, (company_name, data['company_mail'], digest, False))
                 cursor.execute(INSERT_INTO_COMPANIES, (public_id, company_name, data['company_mail'], hashed_password, False))
-                #public_id = cursor.fetchone()[0]
     except (Exception, psycopg2.Error):   
         return jsonify( {'error' : "Error inserting data into PostgreSQL table"})
     
@@ -465,7 +464,17 @@ def create_company(current_company):
 
 @app.put('/company/promote/<public_id>')
 @token_required 
-def promote_company(current_company, public_id):  
+def promote_company(current_company, public_id): 
+    public_id = current_company[1]
+
+    with connection:
+        with connection.cursor() as cursor:
+            cursor.execute(SELECT_IS_ADMIN_FROM_COMPANIES, (public_id, ))
+            is_admin = cursor.fetchall()[0][0]
+            
+            if str(is_admin) != "True":
+                return jsonify({'message' : 'Cannot perform that function, you have to be an admin'}) 
+
     with connection:
             with connection.cursor() as cursor:
                 try:
@@ -512,8 +521,7 @@ def change_company_mail(current_company, public_id):
 
 
 @app.get('/resources')
-@token_required 
-def get_all_resources(current_company):
+def get_all_resources():
     with connection:
         with connection.cursor() as cursor:
             try:
@@ -539,8 +547,7 @@ def get_all_resources(current_company):
 
 
 @app.get('/resources/<resource_id>')
-@token_required 
-def get_one_resource(current_company, resource_id): 
+def get_one_resource(resource_id): 
     with connection:
         with connection.cursor() as cursor: 
             try:    
@@ -567,6 +574,16 @@ def get_one_resource(current_company, resource_id):
 @app.post('/resource')
 @token_required 
 def create_resource(current_company): 
+    public_id = current_company[1]
+
+    with connection:
+        with connection.cursor() as cursor:
+            cursor.execute(SELECT_IS_ADMIN_FROM_COMPANIES, (public_id, ))
+            is_admin = cursor.fetchall()[0][0]
+            
+            if str(is_admin) != "True":
+                return jsonify({'message' : 'Cannot perform that function, you have to be an admin'}) 
+
     try:
         data = request.get_json()
         resource_name = data['resource_name']
@@ -584,6 +601,16 @@ def create_resource(current_company):
 @app.get('/buy_offers')
 @token_required
 def get_all_buy_offers(current_company):
+    public_id = current_company[1]
+
+    with connection:
+        with connection.cursor() as cursor:
+            cursor.execute(SELECT_IS_ADMIN_FROM_COMPANIES, (public_id, ))
+            is_admin = cursor.fetchall()[0][0]
+            
+            if str(is_admin) != "True":
+                return jsonify({'message' : 'Cannot perform that function, you have to be an admin'}) 
+
     with connection:
         with connection.cursor() as cursor:
             try:
@@ -646,8 +673,7 @@ def get_one_buy_offer(current_company, buy_offer_id):
 
 # returns 3 resources with most buy_offers
 @app.get('/buy_offers/most_popular_resources')
-@token_required
-def most_popular_buy_offer_resources(current_company):
+def most_popular_buy_offer_resources():
     with connection:
         with connection.cursor() as cursor: 
             try:    
@@ -667,8 +693,7 @@ def most_popular_buy_offer_resources(current_company):
 
 # returns max buy offer price per ton for a specific resource
 @app.get('/buy_offers/max_buy_price/<resource_id>')
-@token_required
-def buy_max_resource_price(current_company, resource_id):
+def buy_max_resource_price(resource_id):
     with connection:
         with connection.cursor() as cursor: 
             try:    
@@ -683,8 +708,7 @@ def buy_max_resource_price(current_company, resource_id):
 
 # returns avg buy offer price per ton of a specified resource
 @app.get('/buy_offers/avg_price/<resource_id>')
-@token_required
-def buy_avg_resource_price(current_company, resource_id):
+def buy_avg_resource_price(resource_id):
     with connection:
         with connection.cursor() as cursor: 
             try:    
@@ -700,6 +724,16 @@ def buy_avg_resource_price(current_company, resource_id):
 @app.post('/buy_offer')
 @token_required
 def create_buy_offer(current_company): 
+    public_id = current_company[1]
+
+    with connection:
+        with connection.cursor() as cursor:
+            cursor.execute(SELECT_IS_ADMIN_FROM_COMPANIES, (public_id, ))
+            is_admin = cursor.fetchall()[0][0]
+            
+            if str(is_admin) != "True":
+                return jsonify({'message' : 'Cannot perform that function, you have to be an admin'}) 
+
     try:
         data = request.get_json()
 
@@ -805,6 +839,16 @@ def change_buy_min_amount(current_company, buy_offer_id):
 @app.get('/sell_offers')
 @token_required
 def get_all_sell_offers(current_company):
+    public_id = current_company[1]
+
+    with connection:
+        with connection.cursor() as cursor:
+            cursor.execute(SELECT_IS_ADMIN_FROM_COMPANIES, (public_id, ))
+            is_admin = cursor.fetchall()[0][0]
+            
+            if str(is_admin) != "True":
+                return jsonify({'message' : 'Cannot perform that function, you have to be an admin'}) 
+
     with connection:
         with connection.cursor() as cursor:
             try:
@@ -867,8 +911,7 @@ def get_one_sell_offer(current_company, sell_offer_id):
 
 # returns 3 resources with most sell_offers
 @app.get('/sell_offers/most_popular_resources')
-@token_required
-def most_popular_sell_offer_resources(current_company):
+def most_popular_sell_offer_resources():
     with connection:
         with connection.cursor() as cursor: 
             try:    
@@ -888,8 +931,7 @@ def most_popular_sell_offer_resources(current_company):
 
 # returns min sell offer price per ton for a specific resource
 @app.get('/sell_offers/min_sell_price/<resource_id>')
-@token_required
-def sell_offer_min_sell_price(current_company, resource_id):
+def sell_offer_min_sell_price(resource_id):
     with connection:
         with connection.cursor() as cursor: 
             try:    
@@ -904,8 +946,7 @@ def sell_offer_min_sell_price(current_company, resource_id):
 
 # returns avg sell offer price per ton of a specified resource
 @app.get('/sell_offers/avg_price/<resource_id>')
-@token_required
-def sell_avg_resource_price(current_company, resource_id):
+def sell_avg_resource_price(resource_id):
     with connection:
         with connection.cursor() as cursor: 
             try:    
@@ -1096,8 +1137,7 @@ def get_one_transaction(current_company, transaction_id):
 
 # returns average transaction price per ton of a specific resource
 @app.get('/transactions/avg_transaction_price/<resource_id>')
-@token_required
-def get_avg_transaction_price(current_company, resource_id):
+def get_avg_transaction_price(resource_id):
     with connection:
         with connection.cursor() as cursor: 
             try:    
@@ -1112,8 +1152,7 @@ def get_avg_transaction_price(current_company, resource_id):
 
 # returns sum quantity of transactions of a specific resource
 @app.get('/transactions/sum_transaction_quantity/<resource_id>')
-@token_required
-def get_sum_transaction_quantity(current_company, resource_id):
+def get_sum_transaction_quantity(resource_id):
     with connection:
         with connection.cursor() as cursor: 
             try:    
@@ -1128,8 +1167,7 @@ def get_sum_transaction_quantity(current_company, resource_id):
 
 # returns 3 resources with most transactions
 @app.get('/transactions/most_popular_resources')
-@token_required
-def most_popular_transaction_resources(current_company):
+def most_popular_transaction_resources():
     with connection:
         with connection.cursor() as cursor: 
             try:    
@@ -1149,8 +1187,7 @@ def most_popular_transaction_resources(current_company):
 
 # returns avg quantity of transactions of a specific resource
 @app.get('/transactions/avg_transaction_quantity/<transaction_id>')
-@token_required
-def get_avg_transaction_quantity(current_company, transaction_id):
+def get_avg_transaction_quantity(transaction_id):
     with connection:
         with connection.cursor() as cursor: 
             try:    
@@ -1165,7 +1202,7 @@ def get_avg_transaction_quantity(current_company, transaction_id):
 
 @app.post('/transaction')
 @token_required
-def create_transaction(current_company): 
+def create_transaction(): 
     try:
         data = request.get_json()
         
@@ -1188,7 +1225,7 @@ def create_transaction(current_company):
 
 @app.delete('/transaction/<transaction_id>')
 @token_required
-def delete_transaction(current_company, transaction_id):
+def delete_transaction(transaction_id):
     with connection:
         with connection.cursor() as cursor: 
             try:          
@@ -1240,7 +1277,7 @@ def get_all_company_resources(current_company):
 
 @app.get('/company_resources/<company_resource_id>')
 @token_required
-def get_one_company_resource(current_company, company_resource_id):
+def get_one_company_resource(company_resource_id):
     with connection:
         with connection.cursor() as cursor: 
             try:    
@@ -1267,7 +1304,7 @@ def get_one_company_resource(current_company, company_resource_id):
 
 @app.post('/company_resource')
 @token_required
-def create_company_resource(current_company): 
+def create_company_resource(): 
     try:
         data = request.get_json()
         
@@ -1287,7 +1324,7 @@ def create_company_resource(current_company):
 
 @app.put('/company_resource_change_stock/<company_resource_id>')
 @token_required
-def company_resource_change_stock(current_company, company_resource_id): 
+def company_resource_change_stock(company_resource_id): 
     with connection:
             with connection.cursor() as cursor:
                 try:
@@ -1304,7 +1341,7 @@ def company_resource_change_stock(current_company, company_resource_id):
 
 @app.delete('/company_resources/<company_resource_id>')
 @token_required
-def delete_company_resource(current_company, company_resource_id):
+def delete_company_resource(company_resource_id):
     with connection:
         with connection.cursor() as cursor: 
             try:          
