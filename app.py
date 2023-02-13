@@ -11,6 +11,11 @@ import uuid
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 from functools import wraps
+import json
+import datetime
+import requests
+import threading
+import time
 
 load_dotenv()
 
@@ -19,6 +24,7 @@ CREATE_COMPANIES_TABLE = ("""
             company_id serial primary key,
             public_id text unique not null, 
             company_name text unique not null,
+            account_balance float not null default 0,
             company_mail text unique not null,
             password_hash text unique not null,
             is_admin boolean
@@ -79,9 +85,18 @@ CREATE_COMPANY_RESOURCES_TABLE = ("""
         );    
     """)
 
+CREATE_STATISTICS_TABLE = ("""
+        create table if not exists price_statistics (
+            data_id serial primary key, 
+            resource_id int4 references resources(resource_id),
+            timestamp timestamp default now(),
+            price float
+        );
+    """)    
+
 INSERT_INTO_COMPANIES = ("""
-       insert into companies (public_id, company_name, company_mail, password_hash, is_admin)
-       values (%s, %s, %s, %s, %s) returning company_id;
+       insert into companies (public_id, company_name, account_balance,company_mail, password_hash, is_admin)
+       values (%s, %s, %s, %s, %s, %s) returning company_id;
     """)
 
 INSERT_INTO_TRANSACTIONS = ("""
@@ -106,6 +121,10 @@ INSERT_INTO_RESOURCES = ("""
 INSERT_INTO_COMPANY_RESOURCES = ("""
         insert into company_resources (company_id, resource_id, stock_amount)
         values (%s, %s, %s) returning company_resource_id;
+    """)
+
+INSERT_INTO_STATISTICS = ( """
+        insert into price_statistics (resource_id, price) values (%s, %s) returning data_id;
     """)
 
 SELECT_COMPANY_BY_NAME = ("select * from companies where company_name = (%s)")
@@ -141,6 +160,12 @@ DELETE_TRANSACTION = ("delete from transactions where transaction_id = %s;")
 SELECT_ALL_COMPANY_RESOURCES = ("select * from company_resources;")
 
 SELECT_ONE_COMPANY_RESOURCE = ("select * from company_resources where company_resource_id=(%s);")
+
+SELECT_ALL_STATISTICS = ("select r.resource_name, p.timestamp, p.price from price_statistics p, resources r where r.resource_id = p.resource_id;")
+
+SELECT_1_DAY_STATISTICS = ("select * from price_statistics WHERE timestamp > now()::timestamp - (interval '1d');")
+
+SELECT_STATISTICS_OF_RESOURCE = ("select * from price_statistics where resource_id = %s;")
 
 DELETE_COMPANY_RESOURCE = ("delete from company_resources where company_resource_id = %s;")
 
@@ -238,7 +263,6 @@ def is_admin(public_id):
             else:
                 return True    
 
-
 def get_company_id(public_id):
     with connection:
         with connection.cursor() as cursor:
@@ -246,7 +270,6 @@ def get_company_id(public_id):
             cid = cursor.fetchall()[0][0]
 
             return cid
-            
             
 
 @app.route('/login')
@@ -262,7 +285,7 @@ def login():
             company = cursor.fetchall()[0]
 
             public_id = company[1]
-            password_hash = company[4]
+            password_hash = company[5]
         if not company:
              return make_response('Could not verify', 401, {'WWW-Authenticate' : 'basic realm="Login required"'})
 
@@ -275,7 +298,7 @@ def login():
 
 
 @app.post("/initialize")
-@token_required 
+@token_required
 def initialize_db(current_company):
     public_id = current_company[1]
  
@@ -290,6 +313,7 @@ def initialize_db(current_company):
             cursor.execute(CREATE_SELL_OFFERS_TABLE)
             cursor.execute(CREATE_BUY_OFFERS_TABLE)
             cursor.execute(CREATE_TRANSACTIONS_TABLE)
+            cursor.execute(CREATE_STATISTICS_TABLE)
 
             with open("./text_documents/companies.txt", "r") as companies_f:
                 companies = companies_f.read().split('\n')
@@ -310,16 +334,17 @@ def initialize_db(current_company):
                 if len(password) < 5:
                     password = ''.join(random.choice(string.printable) for i in range(10))
                 password_hash = generate_password_hash(password, method='sha256')
+                balance = random.random() * 1000000;
 
-                is_admin = False
-                record = [public_id, company, mail, password_hash, is_admin]
+
+                record = [public_id, company, balance, mail, password_hash, False]
                 records.append(record)
             
-            record = [1, "admin", "admin", generate_password_hash("admin", method='sha256'), True]
+            record = [1, "admin", 0, "admin", generate_password_hash("admin", method='sha256'), True]
             records.append(record)
 
             for record in records:
-                cursor.execute(INSERT_INTO_COMPANIES, (record[0], record[1], record[2], record[3], record[4]))
+                cursor.execute(INSERT_INTO_COMPANIES, (record[0], record[1], record[2], record[3], record[4], record[5]))
 
             with open("./text_documents/resources.txt", "r") as resources_f:
                 resources = resources_f.read().split('\n')
@@ -377,6 +402,8 @@ def initialize_db(current_company):
 
                 cursor.execute(INSERT_INTO_COMPANY_RESOURCES, (company_id, resource_id, stock_amount))
 
+            cursor.execute(INSERT_INTO_STATISTICS, (2, 222))    
+
     return {"message" : "initialization successful"}, 201 
 
 
@@ -403,8 +430,9 @@ def get_all_companies(current_company):
                     company_data['public_id'] = company[1]
                     company_data['company_name'] = company[2]
                     company_data['company_mail'] = company[3]
-                    company_data['hassword_hash'] = company[4]
-                    company_data['is_admin'] = company[5]
+                    company_data['account_balance'] = company[4]
+                    company_data['hassword_hash'] = company[5]
+                    company_data['is_admin'] = company[6]
                     company_data['date'] = dt
                     company_data['timestamp'] = ts
                     output.append(company_data)
@@ -438,8 +466,9 @@ def get_one_company(current_company, public_id):
                 company_data['public_id'] = company[1]
                 company_data['company_name'] = company[2]
                 company_data['company_mail'] = company[3]
-                company_data['hassword_hash'] = company[4]
-                company_data['is_admin'] = company[5]
+                company_data['account_balance'] = company[4]
+                company_data['hassword_hash'] = company[5]
+                company_data['is_admin'] = company[6]
                 company_data['date'] = dt
                 company_data['timestamp'] = ts
                 output.append(company_data)
@@ -454,13 +483,13 @@ def create_company():
     try:
         data = request.get_json()
         company_name = data['company_name']
-
+        
         hashed_password = generate_password_hash(data['password'], method='sha256')
         public_id = str(uuid.uuid4())
 
         with connection:
             with connection.cursor() as cursor: 
-                cursor.execute(INSERT_INTO_COMPANIES, (public_id, company_name, data['company_mail'], hashed_password, False))
+                cursor.execute(INSERT_INTO_COMPANIES, (public_id, company_name, 0, data['company_mail'], hashed_password, False))
     except (Exception, psycopg2.Error):   
         return jsonify( {'error' : "Error inserting data into PostgreSQL table"})
     
@@ -604,13 +633,7 @@ def create_resource(current_company):
 
 
 @app.get('/buy_offers')
-@token_required
-def get_all_buy_offers(current_company):
-    public_id = current_company[1]
-
-    if not is_admin(public_id):
-        return jsonify({'message' : 'Cannot perform that function, you have to be an admin'}), 401
-
+def get_all_buy_offers():
     with connection:
         with connection.cursor() as cursor:
             try:
@@ -904,13 +927,7 @@ def change_buy_min_amount(current_company, buy_offer_id):
 
 
 @app.get('/sell_offers')
-@token_required
-def get_all_sell_offers(current_company):
-    public_id = current_company[1]
-
-    if not is_admin(public_id):
-        return jsonify({'message' : 'Cannot perform that function, you have to be an admin'})   
-
+def get_all_sell_offers():  
     with connection:
         with connection.cursor() as cursor:
             try:
@@ -1535,4 +1552,70 @@ def delete_company_resource(current_company, company_resource_id):
                 return jsonify( {'message' : "Delete Successful"} )
                 
             except (Exception, psycopg2.Error):   
-                return jsonify( {'error' : "Error while deleting company resource"})                
+                return jsonify( {'error' : "Error while deleting company resource"})    
+
+                     
+@app.post('/gather_price_data')
+def gather_data():   
+    try:
+        with connection:
+            with connection.cursor() as cursor: 
+                cursor.execute(SELECT_ALL_RESOURCES)
+                resources = cursor.fetchall()  
+    except (Exception, psycopg2.Error):   
+        return jsonify( {'error' : "Error while fetching data from PostgreSQL table"})
+    
+    try:
+        with connection:
+            with connection.cursor() as cursor: 
+                for resource in resources:
+                    resource_id = resource[0]
+
+                    cursor.execute(GET_MIN_SELL_OFFER_RESOURCE_PRICE_PER_TON, (resource_id, ))
+                    actual_sell_price = cursor.fetchone()[0]
+
+                    cursor.execute(GET_MAX_BUY_OFFER_RESOURCE_PRICE_PER_TON, (resource_id, ))
+                    actual_buy_price = cursor.fetchone()[0]
+
+                    is_sell_valid = True
+                    is_buy_valid = True
+                    if type(actual_sell_price) != int and type(actual_sell_price) != float:
+                        is_sell_valid = False
+                    if type(actual_buy_price) != int and type(actual_buy_price) != float:
+                        is_buy_valid = False
+
+                    if not is_sell_valid and not is_buy_valid:
+                        continue
+                    if not is_buy_valid:
+                        actual_buy_price = actual_sell_price
+                    if not is_sell_valid:
+                        actual_sell_price = actual_buy_price         
+
+                    actual_resource_price = (actual_buy_price + actual_sell_price) / 2
+                    cursor.execute(INSERT_INTO_STATISTICS, (resource_id, actual_resource_price))
+    except (Exception, psycopg2.Error):   
+        return jsonify( {'error' : "Error while fetching data from PostgreSQL table", "price" : actual_resource_price, "id" : resource_id})                
+
+    return jsonify({'message' : 'Data successfully gathered'}), 201 
+
+
+@app.get('/statistics')   
+def get_all_statistics(): 
+    with connection:
+        with connection.cursor() as cursor:
+            try:
+                cursor.execute(SELECT_ALL_STATISTICS)
+
+                output = []
+                records = cursor.fetchall()
+                for record in records:
+                    data = {}
+                    data['resource'] = record[0]
+                    data['time'] = record[1]
+                    data['price'] = record[2]
+
+                    output.append(data)
+            except (Exception, psycopg2.Error):
+                return jsonify( {'error' : "Error occured while fetching data from database"})        
+
+    return jsonify( {'ResourcePrices' : output} )   
