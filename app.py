@@ -12,7 +12,6 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 from functools import wraps
 import json
-import datetime
 import requests
 import threading
 import time
@@ -665,8 +664,7 @@ def get_all_buy_offers():
 
 
 @app.get('/buy_offers/<buy_offer_id>')
-@token_required
-def get_one_buy_offer(current_company, buy_offer_id):
+def get_one_buy_offer(buy_offer_id):
     with connection:
         with connection.cursor() as cursor: 
             try:    
@@ -959,18 +957,18 @@ def get_all_sell_offers():
 
 
 @app.get('/sell_offers/<sell_offer_id>')
-@token_required
-def get_one_sell_offer(current_company, sell_offer_id):
+def get_one_sell_offer(sell_offer_id):
     with connection:
         with connection.cursor() as cursor: 
             try:    
+                
                 cursor.execute(SELECT_ONE_SELL_OFFER, (sell_offer_id, ))
-
+                
                 offer = cursor.fetchall()[0]
-
+                
                 dt = datetime.now()
                 ts = datetime.timestamp(dt)
-
+                
                 offer_data = {}
                 offer_data['sell_offer_id'] = offer[0]
                 offer_data['seller_id'] = offer[1]
@@ -1599,7 +1597,7 @@ def gather_data():
     return jsonify({'message' : 'Data successfully gathered'}), 201 
 
 
-@app.get('/statistics')   
+@app.get('/statistics')  
 def get_all_statistics(): 
     with connection:
         with connection.cursor() as cursor:
@@ -1618,4 +1616,37 @@ def get_all_statistics():
             except (Exception, psycopg2.Error):
                 return jsonify( {'error' : "Error occured while fetching data from database"})        
 
-    return jsonify( {'ResourcePrices' : output} )   
+    return jsonify( {'ResourcePrices' : output} )
+
+
+@app.post('/buy')   
+@token_required 
+def buy(current_company): 
+    try:
+        data = request.get_json()
+        sell_offer_id = data['sell_offer_id']
+        buyer_public_id = data['buyer_public_id']
+        amount = data['amount']
+
+        actual_company_id = current_company[0]        
+        actual_public_id = current_company[1]
+
+        if buyer_public_id != actual_public_id and not is_admin(actual_public_id):
+            return jsonify({'message' : 'Cannot perform that function, you can only buy by youtself'}), 401
+    except:
+        return jsonify( {'error' : "Wrong data, could not read json"})         
+
+    with connection:
+        with connection.cursor() as cursor:
+            try:
+                SELL_OFFER_URL = f"http://127.0.0.1:5000/sell_offers/{sell_offer_id}"
+                r = requests.get(url = SELL_OFFER_URL)
+                sell_offer = r.json()
+                
+
+
+
+            except (Exception, psycopg2.Error):
+                return jsonify( {'error' : "Error occured while fetching data from database"})        
+
+    return jsonify( {'ResourcePrices' : sell_offer} )
